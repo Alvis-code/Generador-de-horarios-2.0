@@ -662,10 +662,9 @@ function createScheduleTable(combination) {
             }
             // En algunos casos endIndex puede ser igual a startIndex (si ambos caen en el mismo slot),
             // en ese caso al menos ocupamos 1 slot visualmente: usar Math.max(1, endIndex - startIndex)
-            let height = endIndex - startIndex;
+            let height = endIndex - startIndex + 1; // +1 para incluir el slot final (inclusivo)
             if (height <= 0) {
-                // si endIndex === startIndex => probablemente el end cae dentro del mismo slot
-                // entonces ocupamos 1 slot visual
+                // seguridad: nunca permitir 0 o negativo
                 height = 1;
             }
             const colorClass = `color-${courseColors[group.courseCode]}`;
