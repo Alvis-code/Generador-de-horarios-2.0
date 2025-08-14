@@ -485,24 +485,44 @@ function generateSchedules() {
 }
 
 function generateValidCombinations() {
-    // Obtener todos los grupos de cada curso
+    // CORRECCIÓN: Usar todos los cursos seleccionados, no solo los que tienen horarios
     const courseGroups = [];
-    Object.entries(appState.courseSchedules).forEach(([courseCode, groups]) => {
-        const groupList = Object.values(groups).map(group => ({
-            ...group,
-            courseCode: courseCode,
-            courseName: appState.selectedCourses[courseCode].nombre
-        }));
-        courseGroups.push(groupList);
+    
+    // Iterar sobre TODOS los cursos seleccionados
+    Object.keys(appState.selectedCourses).forEach(courseCode => {
+        if (appState.courseSchedules[courseCode] && 
+            Object.keys(appState.courseSchedules[courseCode]).length > 0) {
+            
+            const groupList = Object.values(appState.courseSchedules[courseCode]).map(group => ({
+                ...group,
+                courseCode: courseCode,
+                courseName: appState.selectedCourses[courseCode].nombre
+            }));
+            courseGroups.push(groupList);
+        }
     });
+    
+    console.log('Cursos seleccionados:', Object.keys(appState.selectedCourses));
+    console.log('Cursos con horarios:', Object.keys(appState.courseSchedules));
+    console.log('Grupos por curso:', courseGroups.map(groups => groups.length));
     
     if (courseGroups.length === 0) return [];
     
+    // Verificar que tenemos grupos para todos los cursos seleccionados
+    if (courseGroups.length !== Object.keys(appState.selectedCourses).length) {
+        console.warn('No todos los cursos seleccionados tienen horarios configurados');
+        return [];
+    }
+    
     // Generar producto cartesiano de todas las combinaciones
     const allCombinations = cartesianProduct(courseGroups);
+    console.log('Combinaciones totales generadas:', allCombinations.length);
     
     // Filtrar combinaciones válidas (sin choques)
-    return allCombinations.filter(combination => isValidCombination(combination));
+    const validCombinations = allCombinations.filter(combination => isValidCombination(combination));
+    console.log('Combinaciones válidas:', validCombinations.length);
+    
+    return validCombinations;
 }
 
 function cartesianProduct(arrays) {
@@ -523,6 +543,11 @@ function cartesianProduct(arrays) {
 }
 
 function isValidCombination(combination) {
+    // Verificar que la combinación tenga el número correcto de cursos
+    if (combination.length !== Object.keys(appState.selectedCourses).length) {
+        return false;
+    }
+    
     for (let i = 0; i < combination.length; i++) {
         for (let j = i + 1; j < combination.length; j++) {
             if (schedulesConflict(combination[i].schedules, combination[j].schedules)) {
@@ -542,7 +567,7 @@ function schedulesConflict(schedules1, schedules2) {
                 const start2 = timeToMinutes(s2.start);
                 const end2 = timeToMinutes(s2.end);
                 
-                // Verificar solapamiento
+                // Verificar solapamiento - permitir que un horario termine cuando otro empiece
                 if (!(end1 <= start2 || end2 <= start1)) {
                     return true;
                 }
