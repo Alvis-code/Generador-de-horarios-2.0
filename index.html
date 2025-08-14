@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Horarios - Ingeniería Industrial</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">📊</div>
+                    <div class="logo-text">
+                        <h1>Generador de Horarios</h1>
+                        <span>Ingeniería Industrial</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-outline" onclick="importarConfiguracion()">
+                        📁 Importar Config
+                    </button>
+                    <button class="btn btn-outline" onclick="exportarConfiguracion()">
+                        💾 Exportar Config
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="switchTab('selection')">
+                🎯 Selección de Cursos
+            </button>
+            <button class="tab-btn" onclick="switchTab('schedules')">
+                ⚙️ Configuración de Horarios
+            </button>
+            <button class="tab-btn" onclick="switchTab('generate')">
+                🚀 Generar Horarios
+            </button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="main-content">
+            <!-- Tab 1: Course Selection -->
+            <div class="tab-content active" id="selection-tab">
+                <div class="section-card">
+                    <div class="section-header">
+                        <h2>1. Seleccionar Semestres</h2>
+                        <div class="credits-counter">
+                            <span class="credits-label">Créditos Totales:</span>
+                            <span class="credits-value" id="total-credits">0</span>
+                        </div>
+                    </div>
+                    <div class="semesters-grid" id="semesters-grid">
+                        <!-- Semestres generados dinámicamente -->
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header">
+                        <h2>2. Seleccionar Cursos</h2>
+                        <div class="course-counter">
+                            <span class="course-label">Cursos Seleccionados:</span>
+                            <span class="course-value" id="selected-courses-count">0</span>
+                        </div>
+                    </div>
+                    <div class="courses-container" id="courses-container">
+                        <div class="empty-state">
+                            <div class="empty-icon">📚</div>
+                            <p>Selecciona un semestre para ver los cursos disponibles</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Schedule Configuration -->
+            <div class="tab-content" id="schedules-tab">
+                <div class="section-card">
+                    <div class="section-header">
+                        <h2>Configuración de Horarios por Curso</h2>
+                    </div>
+                    <div class="schedule-config-container">
+                        <div class="course-selector">
+                            <label for="course-select">Seleccionar Curso:</label>
+                            <select id="course-select" class="form-select" onchange="loadCourseSchedule()">
+                                <option value="">-- Selecciona un curso --</option>
+                            </select>
+                        </div>
+                        <div class="schedule-editor" id="schedule-editor">
+                            <div class="empty-state">
+                                <div class="empty-icon">⚙️</div>
+                                <p>Selecciona un curso para configurar sus horarios</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-header">
+                        <h2>Configuración Actual</h2>
+                    </div>
+                    <div class="current-config" id="current-config">
+                        <div class="empty-state">
+                            <div class="empty-icon">📋</div>
+                            <p>No hay configuraciones guardadas</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 3: Generate Schedules -->
+            <div class="tab-content" id="generate-tab">
+                <div class="section-card">
+                    <div class="section-header">
+                        <h2>Generar Combinaciones de Horarios</h2>
+                        <div class="generate-actions">
+                            <button class="btn btn-primary" onclick="generateSchedules()">
+                                ⚡ Generar Horarios
+                            </button>
+                        </div>
+                    </div>
+                    <div class="generation-results">
+                        <div class="results-sidebar">
+                            <h3>Combinaciones Válidas</h3>
+                            <div class="combinations-controls">
+                                <button class="btn btn-small" onclick="selectAllCombinations()">Seleccionar Todo</button>
+                                <button class="btn btn-small btn-outline" onclick="clearAllCombinations()">Limpiar</button>
+                            </div>
+                            <div class="combinations-list" id="combinations-list">
+                                <div class="empty-state">
+                                    <div class="empty-icon">🎯</div>
+                                    <p>Genera horarios para ver las combinaciones</p>
+                                </div>
+                            </div>
+                            <div class="export-controls">
+                                <button class="btn btn-secondary" onclick="exportSelectedPDF()">
+                                    📄 Exportar PDF
+                                </button>
+                                <button class="btn btn-secondary" onclick="exportSelectedPNG()">
+                                    🖼️ Exportar PNG
+                                </button>
+                            </div>
+                        </div>
+                        <div class="schedule-preview">
+                            <div class="preview-header">
+                                <h3>Vista Previa del Horario</h3>
+                                <div class="preview-info" id="preview-info"></div>
+                            </div>
+                            <div class="schedule-grid" id="schedule-grid">
+                                <div class="empty-state">
+                                    <div class="empty-icon">📅</div>
+                                    <p>Selecciona una combinación para ver la vista previa</p>
+                                </div>
+                            </div>
+                            <div class="schedule-summary" id="schedule-summary"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- File input for importing -->
+        <input type="file" id="file-input" accept=".json" style="display: none;" onchange="handleFileImport(event)">
+    </div>
+
+    <script src="data.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
