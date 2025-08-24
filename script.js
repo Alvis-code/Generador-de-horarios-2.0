@@ -1,137 +1,139 @@
-// script.js (completo) - Renderizado por minutos (pixel-perfect) y combinaciones robustas
-// Reemplaza tu script.js con este archivo.
-// Requisitos (debes tener en data.js): PLAN_ESTUDIOS, DAYS, TIME_SLOTS, GROUPS
-// Si faltan, el script crea valores por defecto mínimos.
-// Autor: ChatGPT (GPT-5 Thinking mini) - Versión: minute-precise
-
-// ------------------------------
 // Estado de la aplicación
-// ------------------------------
 let appState = {
     selectedSemesters: [],
     selectedCourses: {},
-    courseSchedules: {}, // {courseCode: {A: {group:'A', schedules:[{day,start,end},...]}, ...}}
+    courseSchedules: {},
     generatedCombinations: [],
     currentPreview: null
 };
 
-// ------------------------------
-// Inicialización
-// ------------------------------
-document.addEventListener('DOMContentLoaded', () => {
-    // Si faltan constantes definidas en data.js, usar valores por defecto apropiados:
-    if (typeof DAYS === 'undefined') {
-        console.warn('DAYS no definido: usando valores por defecto Lunes-Viernes');
-        window.DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
-    }
-    if (typeof TIME_SLOTS === 'undefined') {
-        console.warn('TIME_SLOTS no definido: usando slots por defecto (07:00-21:00).');
-        const defaultSlots = [
-            ['07:00','07:50'], ['07:50','08:40'], ['08:50','09:40'], ['09:40','10:30'],
-            ['10:40','11:30'], ['11:30','12:20'], ['12:20','13:10'], ['13:10','14:00'],
-            ['14:00','14:50'], ['14:50','15:40'], ['15:50','16:40'], ['16:40','17:30'],
-            ['17:40','18:30'], ['18:30','19:20'], ['19:20','20:10'], ['20:10','21:00']
-        ];
-        window.TIME_SLOTS = defaultSlots.map(s => ({start: s[0], end: s[1]}));
-    }
-    if (typeof GROUPS === 'undefined') {
-        window.GROUPS = ['A','B','C','D','E','F'];
-    }
+// Inicialización de la aplicación
+document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
-// ------------------------------
-// Utilidades
-// ------------------------------
+function initializeApp() {
+    renderSemesters();
+    updateCreditsCounter();
+    updateCoursesCounter();
+}
+
+// ===== UTILIDADES =====
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
-    toast.className = 'toast ' + type;
-    toast.style.zIndex = 9999;
-    toast.style.position = 'fixed';
-    toast.style.right = '20px';
-    toast.style.bottom = '20px';
-    toast.style.background = type === 'error' ? '#fee2e2' : (type === 'warning' ? '#fff7ed' : '#ecfccb');
-    toast.style.border = '1px solid rgba(0,0,0,0.06)';
-    toast.style.padding = '10px 14px';
-    toast.style.borderRadius = '8px';
-    toast.style.boxShadow = '0 8px 20px rgba(2,6,23,0.08)';
-    toast.innerHTML = `<strong style="display:block;margin-bottom:4px;">${type.toUpperCase()}</strong><div style="font-size:13px;">${message}</div>`;
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️'}</span>
+            <span>${message}</span>
+        </div>
+    `;
+    
     document.body.appendChild(toast);
+    
     setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => { try { document.body.removeChild(toast); } catch(e){} }, 400);
+        toast.style.animation = 'slideOut 0.3s ease-in-out forwards';
+        setTimeout(() => document.body.removeChild(toast), 300);
     }, 3000);
 }
 
-function timeToMinutes(t) {
-    if (!t || typeof t !== 'string') return NaN;
-    const parts = t.split(':').map(x => parseInt(x, 10));
-    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return NaN;
-    return parts[0] * 60 + parts[1];
-}
-function minutesToTime(mins) {
-    const h = Math.floor(mins / 60), m = mins % 60;
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+function formatCourseName(name) {
+    if (name.length > 35) {
+        const words = name.split(' ');
+        if (words.length > 3) {
+            const mid = Math.ceil(words.length / 2);
+            return words.slice(0, mid).join(' ') + '\n' + words.slice(mid).join(' ');
+        }
+        return name.substr(0, 32) + '...';
+    }
+    return name;
 }
 
-// ------------------------------
-// Inicializar app (UI bindings)
-// ------------------------------
-function initializeApp() {
-    try {
-        renderSemesters();
-        updateCreditsCounter();
-        updateCoursesCounter();
-        const select = document.getElementById('course-select');
-        if (select) select.addEventListener('change', loadCourseSchedule);
-        const fileInput = document.getElementById('file-input');
-        if (fileInput) fileInput.addEventListener('change', handleFileImport);
-    } catch (e) {
-        console.error('initializeApp error:', e);
+function timeToMinutes(timeStr) {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+}
+
+function getTimeSlotIndex(time) {
+    return TIME_SLOTS.findIndex(slot => slot.start === time);
+}
+
+// ===== NAVEGACIÓN DE PESTAÑAS =====
+function switchTab(tabName) {
+    // Actualizar botones de pestaña
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Actualizar contenido de pestaña
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.getElementById(`${tabName}-tab`).classList.add('active');
+    
+    // Actualizar datos específicos de la pestaña
+    if (tabName === 'schedules') {
+        updateCourseSelect();
+        renderCurrentConfiguration();
+    } else if (tabName === 'generate') {
+        renderCombinationsList();
     }
 }
 
-// ------------------------------
-// Semestres y cursos
-// ------------------------------
+// ===== PESTAÑA 1: SELECCIÓN DE CURSOS =====
 function renderSemesters() {
     const container = document.getElementById('semesters-grid');
-    if (!container) return;
     container.innerHTML = '';
-    const keys = typeof PLAN_ESTUDIOS !== 'undefined' ? Object.keys(PLAN_ESTUDIOS) : [];
-    keys.forEach(sem => {
-        const id = 'sem-' + sem.replace(/\s+/g,'_');
-        const div = document.createElement('div');
-        div.className = 'semester-item';
-        div.innerHTML = `<div class="semester-checkbox"><input type="checkbox" id="${id}" onchange="handleSemesterChange('${sem}')"><label for="${id}">${sem}</label></div>`;
-        container.appendChild(div);
+    
+    Object.keys(PLAN_ESTUDIOS).forEach(semester => {
+        const semesterDiv = document.createElement('div');
+        semesterDiv.className = 'semester-item';
+        semesterDiv.innerHTML = `
+            <div class="semester-checkbox">
+                <input type="checkbox" id="sem-${semester}" 
+                       onchange="handleSemesterChange('${semester}')" 
+                       ${appState.selectedSemesters.includes(semester) ? 'checked' : ''}>
+                <label for="sem-${semester}">${semester}</label>
+            </div>
+        `;
+        
+        if (appState.selectedSemesters.includes(semester)) {
+            semesterDiv.classList.add('selected');
+        }
+        
+        container.appendChild(semesterDiv);
     });
 }
 
 function handleSemesterChange(semester) {
-    const id = 'sem-' + semester.replace(/\s+/g,'_');
-    const cb = document.getElementById(id);
-    if (!cb) return;
-    if (cb.checked) {
+    const checkbox = document.getElementById(`sem-${semester}`);
+    const semesterDiv = checkbox.closest('.semester-item');
+    
+    if (checkbox.checked) {
+        // Validar paridad de semestres
         if (appState.selectedSemesters.length > 0) {
-            const curr = appState.selectedSemesters[0].includes('Primer Semestre') ? 'impar' : 'par';
-            const neu = semester.includes('Primer Semestre') ? 'impar' : 'par';
-            if (curr !== neu) {
+            const currentType = appState.selectedSemesters[0].includes('Primer Semestre') ? 'impar' : 'par';
+            const newType = semester.includes('Primer Semestre') ? 'impar' : 'par';
+            
+            if (currentType !== newType) {
                 showToast('No puedes mezclar semestres pares e impares', 'warning');
-                cb.checked = false;
+                checkbox.checked = false;
                 return;
             }
         }
+        
         appState.selectedSemesters.push(semester);
+        semesterDiv.classList.add('selected');
     } else {
         appState.selectedSemesters = appState.selectedSemesters.filter(s => s !== semester);
-        if (typeof PLAN_ESTUDIOS !== 'undefined' && PLAN_ESTUDIOS[semester]) {
-            Object.keys(PLAN_ESTUDIOS[semester]).forEach(code => {
-                delete appState.selectedCourses[code];
-                delete appState.courseSchedules[code];
-            });
-        }
+        semesterDiv.classList.remove('selected');
+        
+        // Eliminar cursos del semestre deseleccionado
+        Object.keys(PLAN_ESTUDIOS[semester]).forEach(courseCode => {
+            if (appState.selectedCourses[courseCode]) {
+                delete appState.selectedCourses[courseCode];
+                delete appState.courseSchedules[courseCode];
+            }
+        });
     }
+    
     renderCourses();
     updateCreditsCounter();
     updateCoursesCounter();
@@ -139,432 +141,797 @@ function handleSemesterChange(semester) {
 
 function renderCourses() {
     const container = document.getElementById('courses-container');
-    if (!container) return;
-    container.innerHTML = '';
-    if (!appState.selectedSemesters || appState.selectedSemesters.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📚</div><p>Selecciona un semestre</p></div>`;
+    
+    if (appState.selectedSemesters.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📚</div>
+                <p>Selecciona un semestre para ver los cursos disponibles</p>
+            </div>
+        `;
         return;
     }
-    appState.selectedSemesters.forEach(sem => {
-        const section = document.createElement('div'); section.className = 'semester-section';
-        const title = document.createElement('div'); title.className = 'semester-title'; title.textContent = sem;
-        section.appendChild(title);
-        const grid = document.createElement('div'); grid.className = 'courses-grid';
-        const cursos = (typeof PLAN_ESTUDIOS !== 'undefined' && PLAN_ESTUDIOS[sem]) ? PLAN_ESTUDIOS[sem] : {};
-        Object.entries(cursos).forEach(([code, info]) => {
-            const item = document.createElement('div'); item.className = 'course-item';
-            item.innerHTML = `<div class="course-checkbox">
-                <input type="checkbox" id="course-${code}" onchange="handleCourseChange('${code}')">
-                <div class="course-info"><h3>${info.nombre}</h3><div class="course-meta"><span>${code}</span> - <span>${info.creditos} créditos</span></div></div>
-            </div>`;
-            grid.appendChild(item);
+    
+    container.innerHTML = '';
+    
+    appState.selectedSemesters.forEach(semester => {
+        const sectionDiv = document.createElement('div');
+        sectionDiv.className = 'semester-section';
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'semester-title';
+        titleDiv.textContent = semester;
+        sectionDiv.appendChild(titleDiv);
+        
+        const coursesGrid = document.createElement('div');
+        coursesGrid.className = 'courses-grid';
+        
+        Object.entries(PLAN_ESTUDIOS[semester]).forEach(([code, course]) => {
+            const courseDiv = document.createElement('div');
+            courseDiv.className = 'course-item';
+            courseDiv.innerHTML = `
+                <div class="course-checkbox">
+                    <input type="checkbox" id="course-${code}" 
+                           onchange="handleCourseChange('${code}')"
+                           ${appState.selectedCourses[code] ? 'checked' : ''}>
+                    <div class="course-info">
+                        <h3>${course.nombre}</h3>
+                        <div class="course-meta">
+                            <span class="course-code">${code}</span>
+                            <span class="course-credits">${course.creditos} créditos</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            if (appState.selectedCourses[code]) {
+                courseDiv.classList.add('selected');
+            }
+            
+            coursesGrid.appendChild(courseDiv);
         });
-        section.appendChild(grid); container.appendChild(section);
+        
+        sectionDiv.appendChild(coursesGrid);
+        container.appendChild(sectionDiv);
     });
 }
 
-function handleCourseChange(code) {
-    const cb = document.getElementById(`course-${code}`);
-    if (!cb) return;
-    if (cb.checked) {
-        let found = null;
-        if (typeof PLAN_ESTUDIOS !== 'undefined') {
-            for (const sem of Object.keys(PLAN_ESTUDIOS)) {
-                if (PLAN_ESTUDIOS[sem][code]) { found = PLAN_ESTUDIOS[sem][code]; break; }
+function handleCourseChange(courseCode) {
+    const checkbox = document.getElementById(`course-${courseCode}`);
+    const courseDiv = checkbox.closest('.course-item');
+    
+    if (checkbox.checked) {
+        // Encontrar información del curso
+        let courseInfo = null;
+        for (const semester of appState.selectedSemesters) {
+            if (PLAN_ESTUDIOS[semester][courseCode]) {
+                courseInfo = PLAN_ESTUDIOS[semester][courseCode];
+                break;
             }
         }
-        if (found) { appState.selectedCourses[code] = found; if (!appState.courseSchedules[code]) appState.courseSchedules[code] = {}; }
+        
+        if (courseInfo) {
+            appState.selectedCourses[courseCode] = courseInfo;
+            courseDiv.classList.add('selected');
+        }
     } else {
-        delete appState.selectedCourses[code];
-        delete appState.courseSchedules[code];
+        delete appState.selectedCourses[courseCode];
+        delete appState.courseSchedules[courseCode];
+        courseDiv.classList.remove('selected');
     }
-    updateCreditsCounter(); updateCoursesCounter(); updateCourseSelect();
+    
+    updateCreditsCounter();
+    updateCoursesCounter();
 }
 
 function updateCreditsCounter() {
-    const total = Object.values(appState.selectedCourses).reduce((s,c)=> s + (c.creditos||0), 0);
-    const el = document.getElementById('total-credits'); if (el) el.textContent = total;
-}
-function updateCoursesCounter() {
-    const el = document.getElementById('selected-courses-count'); if (el) el.textContent = Object.keys(appState.selectedCourses).length;
+    const totalCredits = Object.values(appState.selectedCourses)
+        .reduce((sum, course) => sum + course.creditos, 0);
+    
+    document.getElementById('total-credits').textContent = totalCredits;
 }
 
-// ------------------------------
-// Editor de horarios
-// ------------------------------
+function updateCoursesCounter() {
+    const count = Object.keys(appState.selectedCourses).length;
+    document.getElementById('selected-courses-count').textContent = count;
+}
+
+// ===== PESTAÑA 2: CONFIGURACIÓN DE HORARIOS =====
 function updateCourseSelect() {
-    const sel = document.getElementById('course-select'); if (!sel) return;
-    sel.innerHTML = '<option value="">-- Selecciona un curso --</option>';
-    Object.entries(appState.selectedCourses).forEach(([code, info]) => {
-        const o = document.createElement('option'); o.value = code; o.textContent = `${code} - ${info.nombre}`; sel.appendChild(o);
+    const select = document.getElementById('course-select');
+    select.innerHTML = '<option value="">-- Selecciona un curso --</option>';
+    
+    Object.entries(appState.selectedCourses).forEach(([code, course]) => {
+        const option = document.createElement('option');
+        option.value = code;
+        option.textContent = `${code} - ${course.nombre}`;
+        select.appendChild(option);
     });
 }
 
 function loadCourseSchedule() {
-    const sel = document.getElementById('course-select'); const editor = document.getElementById('schedule-editor');
-    if (!editor) return;
-    const code = sel ? sel.value : '';
-    if (!code) { editor.innerHTML = `<div class="empty-state"><p>Selecciona un curso</p></div>`; return; }
-    if (!appState.courseSchedules[code]) appState.courseSchedules[code] = {};
-    const nombre = appState.selectedCourses[code]?.nombre || code;
-    editor.innerHTML = `<div class="course-schedule-header"><h3>${nombre}</h3></div>
-        <div id="groups-container-${code}" class="groups-container">${GROUPS.map(g => createGroupCard(code,g)).join('')}</div>
-        <div style="text-align:center;margin-top:1rem;"><button class="btn" onclick="saveCourseSchedule('${code}')">💾 Guardar Configuración</button></div>`;
+    const select = document.getElementById('course-select');
+    const courseCode = select.value;
+    const editor = document.getElementById('schedule-editor');
+    
+    if (!courseCode) {
+        editor.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">⚙️</div>
+                <p>Selecciona un curso para configurar sus horarios</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const courseName = appState.selectedCourses[courseCode].nombre;
+    
+    // Inicializar estructura de horarios si no existe
+    if (!appState.courseSchedules[courseCode]) {
+        appState.courseSchedules[courseCode] = {};
+    }
+    
+    editor.innerHTML = `
+        <div class="course-schedule-header">
+            <h3>Configurando: ${courseName}</h3>
+        </div>
+        <div class="groups-container" id="groups-container-${courseCode}">
+            ${GROUPS.map(group => createGroupCard(courseCode, group)).join('')}
+        </div>
+        <div style="margin-top: 1.5rem; text-align: center;">
+            <button class="btn btn-primary" onclick="saveCourseSchedule('${courseCode}')">
+                💾 Guardar Configuración
+            </button>
+        </div>
+    `;
 }
 
 function createGroupCard(courseCode, group) {
-    const schedules = (appState.courseSchedules[courseCode] && appState.courseSchedules[courseCode][group]) ? appState.courseSchedules[courseCode][group].schedules : [];
-    const enabled = !!(appState.courseSchedules[courseCode] && appState.courseSchedules[courseCode][group]);
-    return `<div class="group-card">
-        <div class="group-header"><input type="checkbox" id="group-${courseCode}-${group}" ${enabled ? 'checked' : ''} onchange="toggleGroup('${courseCode}','${group}')"><label for="group-${courseCode}-${group}">Grupo ${group}</label></div>
-        <div id="schedules-${courseCode}-${group}" class="group-schedules">${schedules.map((s,i)=> createScheduleItem(courseCode,group,i,s)).join('')}</div>
-        <button class="add-schedule-btn" onclick="addSchedule('${courseCode}','${group}')">➕ Agregar Horario</button>
-    </div>`;
+    const schedules = appState.courseSchedules[courseCode][group]?.schedules || [];
+    const isEnabled = appState.courseSchedules[courseCode][group] ? true : false;
+    
+    return `
+        <div class="group-card">
+            <div class="group-header">
+                <input type="checkbox" id="group-${courseCode}-${group}" 
+                       ${isEnabled ? 'checked' : ''}
+                       onchange="toggleGroup('${courseCode}', '${group}')">
+                <label for="group-${courseCode}-${group}">Grupo ${group}</label>
+            </div>
+            <div class="group-schedules" id="schedules-${courseCode}-${group}">
+                ${schedules.map((schedule, index) => 
+                    createScheduleItem(courseCode, group, index, schedule)
+                ).join('')}
+            </div>
+            <button class="add-schedule-btn" onclick="addSchedule('${courseCode}', '${group}')">
+                ➕ Agregar Horario
+            </button>
+        </div>
+    `;
 }
 
-function createScheduleItem(code, group, index, s = {}) {
-    return `<div class="schedule-item" id="schedule-${code}-${group}-${index}">
-        <select onchange="updateSchedule('${code}','${group}',${index},'day',this.value)">${['','Lunes','Martes','Miércoles','Jueves','Viernes'].map(d=>`<option value="${d}" ${s.day===d?'selected':''}>${d}</option>`).join('')}</select>
-        <input type="time" onchange="updateSchedule('${code}','${group}',${index},'start',this.value)" value="${s.start||''}">
-        <input type="time" onchange="updateSchedule('${code}','${group}',${index},'end',this.value)" value="${s.end||''}">
-        <button onclick="removeSchedule('${code}','${group}',${index})">🗑️</button>
-    </div>`;
+function createScheduleItem(courseCode, group, index, schedule = {}) {
+    return `
+        <div class="schedule-item" id="schedule-${courseCode}-${group}-${index}">
+            <select onchange="updateSchedule('${courseCode}', '${group}', ${index}, 'day', this.value)">
+                <option value="">Día</option>
+                ${DAYS.map(day => `
+                    <option value="${day}" ${schedule.day === day ? 'selected' : ''}>${day}</option>
+                `).join('')}
+            </select>
+            <select onchange="updateSchedule('${courseCode}', '${group}', ${index}, 'start', this.value)">
+                <option value="">Inicio</option>
+                ${TIME_SLOTS.map(slot => `
+                    <option value="${slot.start}" ${schedule.start === slot.start ? 'selected' : ''}>${slot.start}</option>
+                `).join('')}
+            </select>
+            <select onchange="updateSchedule('${courseCode}', '${group}', ${index}, 'end', this.value)">
+                <option value="">Fin</option>
+                ${TIME_SLOTS.map(slot => `
+                    <option value="${slot.end}" ${schedule.end === slot.end ? 'selected' : ''}>${slot.end}</option>
+                `).join('')}
+            </select>
+            <button class="remove-schedule-btn" onclick="removeSchedule('${courseCode}', '${group}', ${index})">
+                🗑️
+            </button>
+        </div>
+    `;
 }
 
-function toggleGroup(code, group) {
-    if (!appState.courseSchedules[code]) appState.courseSchedules[code] = {};
-    const cb = document.getElementById(`group-${code}-${group}`); if (!cb) return;
-    if (cb.checked) { if (!appState.courseSchedules[code][group]) appState.courseSchedules[code][group] = {group, schedules: []}; }
-    else delete appState.courseSchedules[code][group];
-    loadCourseSchedule();
+function toggleGroup(courseCode, group) {
+    const checkbox = document.getElementById(`group-${courseCode}-${group}`);
+    
+    if (checkbox.checked) {
+        if (!appState.courseSchedules[courseCode][group]) {
+            appState.courseSchedules[courseCode][group] = {
+                group: group,
+                schedules: []
+            };
+        }
+    } else {
+        delete appState.courseSchedules[courseCode][group];
+    }
 }
 
-function addSchedule(code, group) {
-    if (!appState.courseSchedules[code]) appState.courseSchedules[code] = {};
-    if (!appState.courseSchedules[code][group]) appState.courseSchedules[code][group] = {group, schedules: []};
-    appState.courseSchedules[code][group].schedules.push({day:'', start:'', end:''});
-    loadCourseSchedule();
-}
-
-function removeSchedule(code, group, index) {
-    if (!appState.courseSchedules[code] || !appState.courseSchedules[code][group]) return;
-    appState.courseSchedules[code][group].schedules.splice(index,1);
-    loadCourseSchedule();
-}
-
-function updateSchedule(code, group, index, field, value) {
-    if (!appState.courseSchedules[code] || !appState.courseSchedules[code][group]) return;
-    const arr = appState.courseSchedules[code][group].schedules;
-    if (!arr[index]) return;
-    arr[index][field] = value;
-}
-
-// Eliminar horarios incompletos al guardar
-function saveCourseSchedule(code) {
-    if (!appState.courseSchedules[code]) return;
-    Object.entries(appState.courseSchedules[code]).forEach(([g,data]) => {
-        data.schedules = data.schedules.filter(s => s.day && s.start && s.end);
-        if (data.schedules.length === 0) delete appState.courseSchedules[code][g];
+function addSchedule(courseCode, group) {
+    if (!appState.courseSchedules[courseCode][group]) {
+        appState.courseSchedules[courseCode][group] = {
+            group: group,
+            schedules: []
+        };
+    }
+    
+    appState.courseSchedules[courseCode][group].schedules.push({
+        day: '',
+        start: '',
+        end: ''
     });
-    if (!appState.courseSchedules[code] || Object.keys(appState.courseSchedules[code]).length === 0) delete appState.courseSchedules[code];
-    loadCourseSchedule(); renderCurrentConfiguration(); showToast('Configuración guardada');
+    
+    const container = document.getElementById(`schedules-${courseCode}-${group}`);
+    const index = appState.courseSchedules[courseCode][group].schedules.length - 1;
+    container.insertAdjacentHTML('beforeend', createScheduleItem(courseCode, group, index));
+}
+
+function removeSchedule(courseCode, group, index) {
+    if (appState.courseSchedules[courseCode][group]) {
+        appState.courseSchedules[courseCode][group].schedules.splice(index, 1);
+        
+        // Re-renderizar los horarios del grupo
+        const container = document.getElementById(`schedules-${courseCode}-${group}`);
+        container.innerHTML = appState.courseSchedules[courseCode][group].schedules
+            .map((schedule, idx) => createScheduleItem(courseCode, group, idx, schedule))
+            .join('');
+    }
+}
+
+function updateSchedule(courseCode, group, index, field, value) {
+    if (appState.courseSchedules[courseCode][group] && 
+        appState.courseSchedules[courseCode][group].schedules[index]) {
+        appState.courseSchedules[courseCode][group].schedules[index][field] = value;
+    }
+}
+
+function saveCourseSchedule(courseCode) {
+    // Validar que los horarios estén completos
+    let hasIncompleteSchedules = false;
+    
+    Object.entries(appState.courseSchedules[courseCode]).forEach(([group, data]) => {
+        data.schedules = data.schedules.filter(schedule => {
+            if (!schedule.day || !schedule.start || !schedule.end) {
+                hasIncompleteSchedules = true;
+                return false;
+            }
+            return true;
+        });
+        
+        // Eliminar grupos sin horarios
+        if (data.schedules.length === 0) {
+            delete appState.courseSchedules[courseCode][group];
+        }
+    });
+    
+    if (hasIncompleteSchedules) {
+        showToast('Se eliminaron horarios incompletos', 'warning');
+    }
+    
+    renderCurrentConfiguration();
+    showToast('Configuración guardada exitosamente');
 }
 
 function renderCurrentConfiguration() {
-    const container = document.getElementById('current-config'); if (!container) return;
-    container.innerHTML = '';
-    if (!appState.courseSchedules || Object.keys(appState.courseSchedules).length===0) {
-        container.innerHTML = `<div class="empty-state"><p>No hay configuraciones</p></div>`; return;
+    const container = document.getElementById('current-config');
+    
+    if (Object.keys(appState.courseSchedules).length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📋</div>
+                <p>No hay configuraciones guardadas</p>
+            </div>
+        `;
+        return;
     }
-    Object.entries(appState.courseSchedules).forEach(([code, groups]) => {
-        const nombre = appState.selectedCourses[code]?.nombre || code;
-        Object.entries(groups).forEach(([g,data]) => {
-            const txt = data.schedules.map(s => `${s.day} ${s.start}-${s.end}`).join(', ');
-            const div = document.createElement('div'); div.className = 'config-item';
-            div.innerHTML = `<div class="config-course">${nombre}</div><div class="config-group">Grupo ${g}</div><div class="config-schedules">${txt}</div>`;
-            container.appendChild(div);
+    
+    container.innerHTML = '';
+    
+    Object.entries(appState.courseSchedules).forEach(([courseCode, groups]) => {
+        const courseName = appState.selectedCourses[courseCode]?.nombre || courseCode;
+        
+        Object.entries(groups).forEach(([group, data]) => {
+            const scheduleText = data.schedules.map(s => 
+                `${s.day} ${s.start}-${s.end}`
+            ).join(', ');
+            
+            const configDiv = document.createElement('div');
+            configDiv.className = 'config-item';
+            configDiv.innerHTML = `
+                <div class="config-course">${courseName}</div>
+                <div class="config-group">Grupo ${group}</div>
+                <div class="config-schedules">${scheduleText}</div>
+            `;
+            container.appendChild(configDiv);
         });
     });
 }
 
-// ------------------------------
-// Generación de combinaciones
-// ------------------------------
+// ===== PESTAÑA 3: GENERAR HORARIOS =====
 function generateSchedules() {
-    const missing = [];
-    Object.keys(appState.selectedCourses).forEach(code => {
-        if (!appState.courseSchedules[code] || Object.keys(appState.courseSchedules[code]).length === 0) {
-            missing.push(appState.selectedCourses[code]?.nombre || code);
+    // Validar que todos los cursos seleccionados tengan horarios configurados
+    const coursesWithoutSchedules = [];
+    Object.keys(appState.selectedCourses).forEach(courseCode => {
+        if (!appState.courseSchedules[courseCode] || 
+            Object.keys(appState.courseSchedules[courseCode]).length === 0) {
+            coursesWithoutSchedules.push(appState.selectedCourses[courseCode].nombre);
         }
     });
-    if (missing.length > 0) { showToast('Faltan horarios para: ' + missing.join(', '), 'error'); return; }
-    const combos = generateValidCombinations();
-    appState.generatedCombinations = combos;
+    
+    if (coursesWithoutSchedules.length > 0) {
+        showToast('Los siguientes cursos no tienen horarios configurados: ' + 
+                 coursesWithoutSchedules.join(', '), 'error');
+        return;
+    }
+    
+    // Generar todas las combinaciones válidas
+    const combinations = generateValidCombinations();
+    appState.generatedCombinations = combinations;
+    
+    if (combinations.length === 0) {
+        showToast('No se encontraron combinaciones válidas sin choques de horario', 'warning');
+        renderCombinationsList();
+        return;
+    }
+    
     renderCombinationsList();
-    showToast(`Se encontraron ${combos.length} combinaciones válidas`);
+    showToast(`Se encontraron ${combinations.length} combinaciones válidas`);
 }
 
 function generateValidCombinations() {
-    const courseCodes = Object.keys(appState.selectedCourses);
+    // Obtener todos los grupos de cada curso
     const courseGroups = [];
-    for (const code of courseCodes) {
-        const groupsObj = appState.courseSchedules[code];
-        if (!groupsObj || Object.keys(groupsObj).length === 0) {
-            console.warn('Faltan grupos para', code); return [];
-        }
-        const list = Object.values(groupsObj).map(g => ({...g, courseCode: code, courseName: appState.selectedCourses[code]?.nombre || code}));
-        courseGroups.push(list);
-    }
-    // producto cartesiano
-    const all = cartesianProduct(courseGroups);
-    return all.filter(isValidCombination);
+    Object.entries(appState.courseSchedules).forEach(([courseCode, groups]) => {
+        const groupList = Object.values(groups).map(group => ({
+            ...group,
+            courseCode: courseCode,
+            courseName: appState.selectedCourses[courseCode].nombre
+        }));
+        courseGroups.push(groupList);
+    });
+    
+    if (courseGroups.length === 0) return [];
+    
+    // Generar producto cartesiano de todas las combinaciones
+    const allCombinations = cartesianProduct(courseGroups);
+    
+    // Filtrar combinaciones válidas (sin choques)
+    return allCombinations.filter(combination => isValidCombination(combination));
 }
 
 function cartesianProduct(arrays) {
-    return arrays.reduce((acc, cur) => acc.flatMap(a => cur.map(c => [...a, c])), [[]]);
+    if (arrays.length === 0) return [[]];
+    if (arrays.length === 1) return arrays[0].map(item => [item]);
+    
+    const result = [];
+    const firstArray = arrays[0];
+    const restProduct = cartesianProduct(arrays.slice(1));
+    
+    firstArray.forEach(item => {
+        restProduct.forEach(restCombination => {
+            result.push([item, ...restCombination]);
+        });
+    });
+    
+    return result;
 }
 
-function isValidCombination(comb) {
-    for (let i=0;i<comb.length;i++){
-        for (let j=i+1;j<comb.length;j++){
-            if (schedulesConflict(comb[i].schedules, comb[j].schedules)) return false;
+function isValidCombination(combination) {
+    for (let i = 0; i < combination.length; i++) {
+        for (let j = i + 1; j < combination.length; j++) {
+            if (schedulesConflict(combination[i].schedules, combination[j].schedules)) {
+                return false;
+            }
         }
     }
     return true;
 }
 
-function schedulesConflict(s1, s2) {
-    for (const a of s1) {
-        for (const b of s2) {
-            if (a.day === b.day) {
-                const a1 = timeToMinutes(a.start), a2 = timeToMinutes(a.end), b1 = timeToMinutes(b.start), b2 = timeToMinutes(b.end);
-                if (isNaN(a1)||isNaN(a2)||isNaN(b1)||isNaN(b2)) return true;
-                if (!(a2 <= b1 || b2 <= a1)) return true;
+function schedulesConflict(schedules1, schedules2) {
+    for (const s1 of schedules1) {
+        for (const s2 of schedules2) {
+            if (s1.day === s2.day) {
+                const start1 = timeToMinutes(s1.start);
+                const end1 = timeToMinutes(s1.end);
+                const start2 = timeToMinutes(s2.start);
+                const end2 = timeToMinutes(s2.end);
+                
+                // Verificar solapamiento
+                if (!(end1 <= start2 || end2 <= start1)) {
+                    return true;
+                }
             }
         }
     }
     return false;
 }
 
-// ------------------------------
-// Previsualización - Pixel-perfect por minutos
-// ------------------------------
+function renderCombinationsList() {
+    const container = document.getElementById('combinations-list');
+    
+    if (appState.generatedCombinations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">🎯</div>
+                <p>Genera horarios para ver las combinaciones</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    appState.generatedCombinations.forEach((combination, index) => {
+        const combinationDiv = document.createElement('div');
+        combinationDiv.className = 'combination-item';
+        combinationDiv.innerHTML = `
+            <div class="combination-checkbox">
+                <input type="checkbox" id="comb-${index}" onchange="handleCombinationSelection()">
+                <label for="comb-${index}">Combinación ${index + 1}</label>
+            </div>
+            <button class="view-btn" onclick="previewCombination(${index})">Ver</button>
+        `;
+        container.appendChild(combinationDiv);
+    });
+}
+
+function selectAllCombinations() {
+    document.querySelectorAll('#combinations-list input[type="checkbox"]')
+        .forEach(checkbox => checkbox.checked = true);
+}
+
+function clearAllCombinations() {
+    document.querySelectorAll('#combinations-list input[type="checkbox"]')
+        .forEach(checkbox => checkbox.checked = false);
+}
+
+function handleCombinationSelection() {
+    // Esta función se puede usar para manejar la selección de combinaciones
+    // Por ahora solo es necesaria para el evento onchange
+}
+
 function previewCombination(index) {
-    if (!appState.generatedCombinations || index<0 || index>=appState.generatedCombinations.length) return;
+    if (index < 0 || index >= appState.generatedCombinations.length) return;
+    
     const combination = appState.generatedCombinations[index];
     appState.currentPreview = { combination, index };
-    renderSchedulePreview(combination, index+1);
-}
-
-function renderSchedulePreview(combination, number) {
-    const grid = document.getElementById('schedule-grid');
-    const summary = document.getElementById('schedule-summary');
-    const info = document.getElementById('preview-info');
-    if (info) info.textContent = `Combinación ${number}`;
-    if (grid) grid.innerHTML = createMinutePreciseScheduleHTML(combination);
-    if (summary) summary.innerHTML = createScheduleSummary(combination);
-}
-
-function createMinutePreciseScheduleHTML(combination) {
-    // calcular límites (minStart, maxEnd)
-    let minStart = Infinity, maxEnd = -Infinity;
-    if (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length>0) {
-        const s = timeToMinutes(TIME_SLOTS[0].start);
-        const e = timeToMinutes(TIME_SLOTS[TIME_SLOTS.length-1].end);
-        if (!isNaN(s) && !isNaN(e)) { minStart = Math.min(minStart, s); maxEnd = Math.max(maxEnd, e); }
-    }
-    combination.forEach(g => {
-        (g.schedules || []).forEach(s => {
-            const a = timeToMinutes(s.start), b = timeToMinutes(s.end);
-            if (!isNaN(a) && !isNaN(b)) { minStart = Math.min(minStart, a); maxEnd = Math.max(maxEnd, b); }
-        });
+    
+    renderSchedulePreview(combination, index + 1);
+    
+    // Marcar como seleccionada visualmente
+    document.querySelectorAll('.combination-item').forEach(item => {
+        item.classList.remove('selected');
     });
-    if (!isFinite(minStart) || !isFinite(maxEnd) || maxEnd <= minStart) { minStart = 7*60; maxEnd = 21*60; }
+    document.querySelectorAll('.combination-item')[index].classList.add('selected');
+}
 
-    const totalMinutes = maxEnd - minStart;
-    const MIN_PX = 400, MAX_PX = 1400;
-    // referencia visual basada en TIME_SLOTS length
-    let refPx = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length>0) ? TIME_SLOTS.length * 40 : 640;
-    refPx = Math.max(MIN_PX, Math.min(MAX_PX, refPx));
-    const perMinutePx = refPx / totalMinutes;
-    const gridHeightPx = Math.ceil(totalMinutes * perMinutePx);
+function renderSchedulePreview(combination, combinationNumber) {
+    const gridContainer = document.getElementById('schedule-grid');
+    const summaryContainer = document.getElementById('schedule-summary');
+    const previewInfo = document.getElementById('preview-info');
+    
+    // Actualizar información de la vista previa
+    previewInfo.textContent = `Combinación ${combinationNumber}`;
+    
+    // Crear tabla de horarios
+    gridContainer.innerHTML = createScheduleTable(combination);
+    
+    // Crear resumen
+    summaryContainer.innerHTML = createScheduleSummary(combination);
+}
 
-    // palette
-    const palette = ['#ef4444','#f97316','#f59e0b','#10b981','#06b6d4','#3b82f6','#8b5cf6','#ec4899','#0ea5a0','#ef6c00'];
-    const colorMap = {}; let colorIdx = 0;
-
-    // Build HTML: container with time column and days columns; blocks positioned absolutely
-    let html = `<div class="minute-schedule-wrapper" style="width:100%;position:relative;">`;
-    html += `<div style="display:flex; gap:12px; align-items:flex-start;">`;
-
-    // time column
-    html += `<div class="time-column" style="width:92px; position:relative; height:${gridHeightPx}px;">`;
-    if (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length>0) {
-        TIME_SLOTS.forEach(slot => {
-            const top = Math.round((timeToMinutes(slot.start) - minStart) * perMinutePx);
-            html += `<div style="position:absolute; left:8px; top:${top}px; font-size:12px; color:#0f172a;">${slot.start}</div>`;
-        });
-    } else {
-        for (let t = Math.ceil(minStart/60)*60; t<=maxEnd; t+=60) {
-            const top = Math.round((t - minStart) * perMinutePx);
-            html += `<div style="position:absolute; left:8px; top:${top}px; font-size:12px; color:#0f172a;">${minutesToTime(t)}</div>`;
+function createScheduleTable(combination) {
+    // Crear matriz de horarios
+    const schedule = Array(TIME_SLOTS.length).fill(null).map(() => 
+        Array(DAYS.length).fill(null)
+    );
+    
+    const courseColors = {};
+    let colorIndex = 0;
+    
+    // Asignar colores a los cursos
+    combination.forEach(group => {
+        if (!courseColors[group.courseCode]) {
+            courseColors[group.courseCode] = colorIndex + 1;
+            colorIndex = (colorIndex + 1) % 10;
         }
-    }
-    html += `</div>`; // end time column
-
-    // days area (columns)
-    html += `<div class="days-area" style="flex:1; position:relative; height:${gridHeightPx}px; display:flex; gap:12px;">`;
-    DAYS.forEach(day => {
-        html += `<div class="day-col" data-day="${day}" style="flex:1; position:relative;"></div>`;
     });
-    // overlay with horizontal slot lines
-    html += `<div style="position:absolute; left:0; right:0; top:0; height:${gridHeightPx}px; pointer-events:none;">`;
-    if (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length>0) {
-        TIME_SLOTS.forEach(slot => {
-            const top = Math.round((timeToMinutes(slot.start) - minStart) * perMinutePx);
-            const h = Math.max(1, Math.round((timeToMinutes(slot.end) - timeToMinutes(slot.start)) * perMinutePx));
-            html += `<div style="position:absolute; left:0; right:0; top:${top}px; height:${h}px; border-bottom:1px solid rgba(15,23,42,0.04);"></div>`;
-        });
-    }
-    html += `</div>`; // overlay
-
-    // blocks container (absolute overlay positioned on top of day columns)
-    html += `<div class="blocks-overlay" style="position:absolute; left:104px; right:0; top:0; height:${gridHeightPx}px; pointer-events:auto;">`;
-    // left offset of overlay is approx time column width + gap (92 + 12)
-    // calculate each block absolute left in percent relative to overlay width
-    combination.forEach(g => {
-        if (!colorMap[g.courseCode]) { colorMap[g.courseCode] = palette[colorIdx % palette.length]; colorIdx++; }
-    });
-    combination.forEach(g => {
-        const colIndexBase = DAYS.reduce((acc,d,i) => { if (d === d) return acc; return acc; }, 0); // placeholder
-        (g.schedules || []).forEach(s => {
-            const dIdx = DAYS.indexOf(s.day);
-            if (dIdx === -1) { console.warn('día desconocido', s); return; }
-            const sMin = timeToMinutes(s.start), eMin = timeToMinutes(s.end);
-            if (isNaN(sMin) || isNaN(eMin) || eMin <= sMin) { console.warn('horario inválido', s); return; }
-            const top = Math.round((sMin - minStart) * perMinutePx);
-            const height = Math.max(6, Math.round((eMin - sMin) * perMinutePx));
-            const leftPercent = (dIdx / DAYS.length) * 100;
-            const widthPercent = (1 / DAYS.length) * 100;
-            const bgcolor = colorMap[g.courseCode];
-            const safeName = (g.courseName || g.courseCode || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            html += `<div class="schedule-block" style="
-                position:absolute;
-                left:${leftPercent}%;
-                width:${widthPercent}%;
-                top:${top}px;
-                height:${height}px;
-                padding:6px;
-                box-sizing:border-box;
-                transform:translateX(${(100/DAYS.length)*0.02}%);
-            ">
-                <div style="background:${bgcolor};color:white;border-radius:8px;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:4px;font-weight:700;overflow:hidden;">
-                    <div style="font-size:12px;line-height:1.05;">${safeName}</div>
-                    <div style="font-size:11px;opacity:0.95;margin-top:4px;">Grupo ${g.group}</div>
-                </div>
-            </div>`;
+    
+    // Llenar la matriz con los horarios
+    combination.forEach(group => {
+        group.schedules.forEach(scheduleItem => {
+            const dayIndex = DAYS.indexOf(scheduleItem.day);
+            const startIndex = getTimeSlotIndex(scheduleItem.start);
+            const endIndex = getTimeSlotIndex(scheduleItem.end);
+            
+            if (dayIndex !== -1 && startIndex !== -1 && endIndex !== -1) {
+                const colorClass = `color-${courseColors[group.courseCode]}`;
+                const blockData = {
+                    courseName: formatCourseName(group.courseName),
+                    group: group.group,
+                    colorClass: colorClass,
+                    height: endIndex - startIndex
+                };
+                
+                for (let i = startIndex; i < endIndex; i++) {
+                    schedule[i][dayIndex] = i === startIndex ? blockData : 'occupied';
+                }
+            }
         });
     });
-    html += `</div>`; // blocks overlay
-
-    html += `</div>`; // end days-area
-    html += `</div>`; // end row
-    html += `</div>`; // wrapper
-
-    return html;
+    
+    // Generar HTML de la tabla
+    let tableHTML = `
+        <table class="schedule-table">
+            <thead>
+                <tr>
+                    <th>Hora</th>
+                    ${DAYS.map(day => `<th>${day}</th>`).join('')}
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    TIME_SLOTS.forEach((timeSlot, timeIndex) => {
+        tableHTML += `
+            <tr>
+                <td class="time-slot">${timeSlot.start}<br>${timeSlot.end}</td>
+        `;
+        
+        DAYS.forEach((day, dayIndex) => {
+            const cell = schedule[timeIndex][dayIndex];
+            
+            if (cell === 'occupied') {
+                // Celda ocupada por un bloque que empezó antes
+                tableHTML += '<td style="border: none;"></td>';
+            } else if (cell && typeof cell === 'object') {
+                // Inicio de un bloque de curso
+                tableHTML += `
+                    <td style="padding: 0; position: relative; height: ${cell.height * 40}px; border: none;">
+                        <div class="schedule-block ${cell.colorClass}" 
+                             style="height: ${cell.height * 38}px; top: 1px;">
+                            <div class="course-name">${cell.courseName}</div>
+                            <div class="group-info">Grupo ${cell.group}</div>
+                        </div>
+                    </td>
+                `;
+            } else {
+                // Celda vacía
+                tableHTML += '<td></td>';
+            }
+        });
+        
+        tableHTML += '</tr>';
+    });
+    
+    tableHTML += '</tbody></table>';
+    return tableHTML;
 }
 
-// ------------------------------
-// Resumen / leyenda
-// ------------------------------
 function createScheduleSummary(combination) {
-    const totalCredits = combination.reduce((s,g)=> s + (appState.selectedCourses[g.courseCode]?.creditos || 0), 0);
-    const items = combination.map(g => {
-        const schedules = (g.schedules || []).map(s => `${s.day} ${s.start}-${s.end}`).join(', ');
-        return `<div class="legend-item" style="background:#fff;padding:12px;border-radius:10px;margin-bottom:10px;">
-            <div style="font-weight:800;">${g.courseName}</div>
-            <div style="font-size:13px;color:#0f172a99;">Grupo ${g.group} • ${appState.selectedCourses[g.courseCode]?.creditos || 0} créditos</div>
-            <div style="margin-top:6px;color:#334155;">${schedules}</div>
-        </div>`;
-    }).join('');
-    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h4>Resumen del Horario</h4>
-        <div style="text-align:right">
-            <div style="font-size:18px;font-weight:900">${totalCredits}</div>
-            <div style="font-size:12px;color:#64748b">Créditos Totales</div>
+    const totalCredits = combination.reduce((sum, group) => {
+        return sum + appState.selectedCourses[group.courseCode].creditos;
+    }, 0);
+    
+    const courseColors = {};
+    let colorIndex = 0;
+    
+    return `
+        <div class="summary-header">
+            <h4>Resumen del Horario</h4>
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <div class="stat-value">${totalCredits}</div>
+                    <div class="stat-label">Créditos Totales</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${combination.length}</div>
+                    <div class="stat-label">Cursos</div>
+                </div>
+            </div>
         </div>
-    </div><div>${items}</div>`;
+        <div class="courses-legend">
+            ${combination.map(group => {
+                if (!courseColors[group.courseCode]) {
+                    courseColors[group.courseCode] = colorIndex + 1;
+                    colorIndex = (colorIndex + 1) % 10;
+                }
+                
+                const scheduleText = group.schedules.map(s => 
+                    `${s.day} ${s.start}-${s.end}`
+                ).join(', ');
+                
+                return `
+                    <div class="legend-item">
+                        <div class="legend-color color-${courseColors[group.courseCode]}" 
+                             style="background: var(--course-color-${courseColors[group.courseCode]});"></div>
+                        <div class="legend-info">
+                            <div class="legend-name">${group.courseName}</div>
+                            <div class="legend-details">
+                                <span class="legend-group">Grupo ${group.group}</span>
+                                <span class="legend-credits">${appState.selectedCourses[group.courseCode].creditos} créditos</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
 }
 
-// ------------------------------
-// Combinaciones UI
-// ------------------------------
-function renderCombinationsList() {
-    const container = document.getElementById('combinations-list'); if (!container) return;
-    container.innerHTML = '';
-    if (!appState.generatedCombinations || appState.generatedCombinations.length === 0) {
-        container.innerHTML = `<div class="empty-state"><p>Genera las combinaciones</p></div>`; return;
+// ===== EXPORTAR E IMPORTAR CONFIGURACIÓN =====
+function exportarConfiguracion() {
+    const config = {
+        selectedSemesters: appState.selectedSemesters,
+        selectedCourses: appState.selectedCourses,
+        courseSchedules: appState.courseSchedules
+    };
+    
+    const dataStr = JSON.stringify(config, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    const exportFileDefaultName = 'configuracion-horarios.json';
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    
+    showToast('Configuración exportada exitosamente');
+}
+
+function importarConfiguracion() {
+    document.getElementById('file-input').click();
+}
+
+function handleFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const config = JSON.parse(e.target.result);
+            
+            // Validar estructura básica
+            if (!config.selectedSemesters || !config.selectedCourses || !config.courseSchedules) {
+                throw new Error('Formato de archivo inválido');
+            }
+            
+            // Cargar configuración
+            appState.selectedSemesters = config.selectedSemesters;
+            appState.selectedCourses = config.selectedCourses;
+            appState.courseSchedules = config.courseSchedules;
+            
+            // Actualizar interfaz
+            renderSemesters();
+            renderCourses();
+            updateCreditsCounter();
+            updateCoursesCounter();
+            updateCourseSelect();
+            renderCurrentConfiguration();
+            
+            showToast('Configuración importada exitosamente');
+            
+        } catch (error) {
+            showToast('Error al importar la configuración: ' + error.message, 'error');
+        }
+    };
+    
+    reader.readAsText(file);
+    event.target.value = ''; // Limpiar el input
+}
+
+// ===== EXPORTAR PDF Y PNG =====
+function exportSelectedPDF() {
+    const selectedIndexes = getSelectedCombinations();
+    
+    if (selectedIndexes.length === 0) {
+        showToast('Selecciona al menos una combinación para exportar', 'warning');
+        return;
     }
-    appState.generatedCombinations.forEach((c,i) => {
-        const wrap = document.createElement('div'); wrap.className = 'combination-item';
-        wrap.innerHTML = `<label style="margin-right:8px;"><input type="checkbox" id="comb-${i}"> Combinación ${i+1}</label> <button class="btn" onclick="previewCombination(${i})">Ver</button>`;
-        container.appendChild(wrap);
+    
+    showToast('Generando PDF...', 'warning');
+    
+    // Usar jsPDF para generar el PDF
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('l', 'mm', 'a4'); // landscape, milímetros, A4
+    
+    selectedIndexes.forEach((index, pageIndex) => {
+        if (pageIndex > 0) pdf.addPage();
+        
+        const combination = appState.generatedCombinations[index];
+        
+        // Crear un elemento temporal para el horario
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'fixed';
+        tempDiv.style.top = '-9999px';
+        tempDiv.style.width = '1200px';
+        tempDiv.style.backgroundColor = 'white';
+        tempDiv.style.padding = '20px';
+        
+        tempDiv.innerHTML = `
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="margin: 0; color: #1e293b;">Combinación ${index + 1} - Horario de Clases</h1>
+                <p style="margin: 10px 0; color: #64748b;">Ingeniería Industrial</p>
+            </div>
+            ${createScheduleTable(combination)}
+            ${createScheduleSummary(combination)}
+        `;
+        
+        document.body.appendChild(tempDiv);
+        
+        html2canvas(tempDiv, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: false
+        }).then(canvas => {
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidth = 297; // A4 width in mm (landscape)
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+            
+            document.body.removeChild(tempDiv);
+            
+            // Si es la última página, guardar el PDF
+            if (pageIndex === selectedIndexes.length - 1) {
+                pdf.save('horarios-combinaciones.pdf');
+                showToast('PDF generado exitosamente');
+            }
+        }).catch(error => {
+            document.body.removeChild(tempDiv);
+            showToast('Error al generar PDF: ' + error.message, 'error');
+        });
+    });
+}
+
+function exportSelectedPNG() {
+    const selectedIndexes = getSelectedCombinations();
+    
+    if (selectedIndexes.length === 0) {
+        showToast('Selecciona al menos una combinación para exportar', 'warning');
+        return;
+    }
+    
+    if (!appState.currentPreview) {
+        showToast('Primero visualiza una combinación', 'warning');
+        return;
+    }
+    
+    showToast('Generando imagen...', 'warning');
+    
+    const previewElement = document.querySelector('.schedule-preview');
+    
+    html2canvas(previewElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff'
+    }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `horario-combinacion-${appState.currentPreview.index + 1}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        
+        showToast('Imagen exportada exitosamente');
+    }).catch(error => {
+        showToast('Error al generar imagen: ' + error.message, 'error');
     });
 }
 
 function getSelectedCombinations() {
-    const res = [];
-    document.querySelectorAll('#combinations-list input[type="checkbox"]:checked').forEach(cb => {
-        const id = cb.id || ''; const parts = id.split('-'); const idx = parseInt(parts[1]);
-        if (!isNaN(idx)) res.push(idx);
-    });
-    return res;
+    const selected = [];
+    document.querySelectorAll('#combinations-list input[type="checkbox"]:checked')
+        .forEach((checkbox, index) => {
+            const combinationIndex = parseInt(checkbox.id.split('-')[1]);
+            selected.push(combinationIndex);
+        });
+    return selected;
 }
-
-// ------------------------------
-// Export / Import (JSON) y export PNG
-// ------------------------------
-function exportarConfiguracion() {
-    const cfg = { selectedSemesters: appState.selectedSemesters, selectedCourses: appState.selectedCourses, courseSchedules: appState.courseSchedules };
-    const dataStr = JSON.stringify(cfg, null, 2);
-    const link = document.createElement('a'); link.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr); link.download = 'configuracion-horarios.json'; link.click();
-    showToast('Configuración exportada');
-}
-function importarConfiguracion() {
-    const input = document.getElementById('file-input');
-    if (!input) {
-        const fake = document.createElement('input'); fake.type = 'file'; fake.accept='application/json'; fake.onchange = handleFileImport; fake.click(); return;
-    }
-    input.click();
-}
-function handleFileImport(e) {
-    const file = e.target.files ? e.target.files[0] : null; if (!file) return;
-    const reader = new FileReader(); reader.onload = ev => {
-        try {
-            const cfg = JSON.parse(ev.target.result);
-            if (!cfg.selectedSemesters || !cfg.selectedCourses || !cfg.courseSchedules) throw new Error('Formato inválido');
-            appState.selectedSemesters = cfg.selectedSemesters;
-            appState.selectedCourses = cfg.selectedCourses;
-            appState.courseSchedules = cfg.courseSchedules;
-            renderSemesters(); renderCourses(); updateCreditsCounter(); updateCoursesCounter(); updateCourseSelect(); renderCurrentConfiguration();
-            showToast('Configuración importada');
-        } catch (err) { showToast('Error importando: ' + err.message, 'error'); }
-    }; reader.readAsText(file);
-}
-
-// Generar PNG de la vista actual (requiere html2canvas cargado)
-function exportSelectedPNG() {
-    if (!appState.currentPreview) { showToast('Visualiza una combinación primero', 'warning'); return; }
-    const wrapper = document.querySelector('.minute-schedule-wrapper') || document.getElementById('schedule-grid');
-    if (!wrapper) { showToast('No hay previsualización', 'error'); return; }
-    if (typeof html2canvas === 'undefined') { showToast('html2canvas no cargado', 'error'); return; }
-    html2canvas(wrapper, { scale: 2, useCORS: true }).then(canvas => {
-        const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `horario-${appState.currentPreview.index+1}.png`; link.click();
-        showToast('PNG generado');
-    }).catch(e => showToast('Error generando PNG: ' + e.message, 'error'));
-}
-
-// ------------------------------
-// Init log
-// ------------------------------
-console.log('script.js minute-precise cargado.');
